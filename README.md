@@ -14,6 +14,7 @@ docker compose exec api pytest           # 테스트
 
 ## 구조
 
+### 프로젝트 dir 구조
 ```
 moneyplan/
 ├── app/
@@ -33,3 +34,23 @@ moneyplan/
 ├── Dockerfile
 └── docker-compose.yml
 ```
+### 동작 구조
+```
+요청
+ │
+ ▼
+main.py ─── 오류 처리기 (422 입력 오류 / ServiceError → 400·404·409)
+ │
+ ▼
+routers/ ─── 경로·월 형식 검사, schemas.py로 입력 검증
+ │      └─ 단순 CRUD(수입·목표·고정 지출·생활비)는 여기서 바로 DB 저장 (C14)
+ ▼
+services/ ── plan_service    : DB → 엔진 입력 → 엔진 실행 → 결과 저장
+ │           expense_service : 소비 저장, 목적별 잔액
+ │           dashboard_service: 위 둘을 조합
+ ▼
+engine.py ── 순수 계산 (DB를 모름)
+ │
+models.py ↔ database.py ↔ PostgreSQL
+```
+'''
