@@ -71,7 +71,7 @@ def build_engine_input(db: Session, month: str) -> EngineInput:
     )
 
 
-def _plan_engine_input(db: Session, plan: AllocationPlan) -> EngineInput:
+def _plan_engine_input(plan: AllocationPlan) -> EngineInput:
     """저장된 계획 기준 엔진 입력 (수동 수정·목표 삭제용, 5.6).
 
     I는 계획의 총수입, F·L은 고정·생활비 행의 필요 금액. 목표는 이 계획에 행이 있는 것만
@@ -104,7 +104,7 @@ def _require_plan(db: Session, month: str) -> AllocationPlan:
 
 # ---------- 변환 ----------
 
-def to_plan_read(db: Session, plan: AllocationPlan) -> PlanRead:
+def to_plan_read(plan: AllocationPlan) -> PlanRead:
     """저장된 계획을 응답 형식으로 바꾼다.
 
     n·S는 저장하지 않으므로 목표 월과 확보액으로 다시 계산한다. lacking = max(R − a, 0).
@@ -194,7 +194,7 @@ def allocate(db: Session, month: str, mode: Mode = "reallocate") -> AllocateResp
       수입이 줄었거나(T09) 기존 계획이 배분 불가면(T12, C17) 409.
     """
     plan = _get_plan(db, month)
-    previous = to_plan_read(db, plan) if plan is not None else None
+    previous = to_plan_read(plan) if plan is not None else None
 
     if mode == "keep":
         if plan is None:
@@ -226,23 +226,23 @@ def allocate(db: Session, month: str, mode: Mode = "reallocate") -> AllocateResp
 
     db.commit()
     db.refresh(plan)
-    return AllocateResponse(previous=previous, current=to_plan_read(db, plan))
+    return AllocateResponse(previous=previous, current=to_plan_read(plan))
 
 
 def get_plan(db: Session, month: str) -> PlanRead:
     """해당 월 계획을 조회한다."""
-    return to_plan_read(db, _require_plan(db, month))
+    return to_plan_read(_require_plan(db, month))
 
 
 def find_plan(db: Session, month: str) -> PlanRead | None:
     """해당 월 계획을 조회하고, 없으면 None (대시보드용)."""
     plan = _get_plan(db, month)
-    return to_plan_read(db, plan) if plan is not None else None
+    return to_plan_read(plan) if plan is not None else None
 
 
 # ---------- 수동 수정 (R09) ----------
 
-def _evaluate_plan(db: Session, plan: AllocationPlan, amounts: dict[int, int]) -> EngineResult:
+def _evaluate_plan(plan: AllocationPlan, amounts: dict[int, int]) -> EngineResult:
     """배분 항목 id → 금액(없으면 저장된 금액)으로 엔진 evaluate를 호출한다 (5.6)."""
     fixed = living = 0
     goal_allocated: dict[int, int] = {}
@@ -255,7 +255,7 @@ def _evaluate_plan(db: Session, plan: AllocationPlan, amounts: dict[int, int]) -
         else:
             goal_allocated[a.goal_id] = amount
     try:
-        return evaluate(_plan_engine_input(db, plan), fixed, living, goal_allocated)
+        return evaluate(_plan_engine_input(plan), fixed, living, goal_allocated)
     except ValueError as e:  # T14: 고정·생활비 감액 등
         raise BadRequestError(str(e)) from e
 
@@ -309,20 +309,20 @@ def update_allocations(db: Session, month: str, items: list[AllocationItem]) -> 
             excess=excess,
         )
 
-    result = _evaluate_plan(db, plan, new_amounts)  # 요청 금액 그대로 검증 (T14: 생활비 감액은 여기서 거부)
+    result = _evaluate_plan(plan, new_amounts)  # 요청 금액 그대로 검증 (T14: 생활비 감액은 여기서 거부)
 
     # C30: 이번 수정으로 줄어든 금액은 생활비에 더한다. 수정 전부터 있던 미배분 금액은 그대로 둔다.
     freed = plan.total_allocated - new_total
     if freed > 0:
         living = next(a for a in plan.allocations if a.category == "living")
         new_amounts[living.id] = new_amounts.get(living.id, living.allocated_amount) + freed
-        result = _evaluate_plan(db, plan, new_amounts)
+        result = _evaluate_plan(plan, new_amounts)
     # 여기까지 DB는 바뀌지 않음
     changed = {i for i, v in new_amounts.items() if by_id[i].allocated_amount != v}
     _apply_result(plan, result, changed)
     db.commit()
     db.refresh(plan)
-    return to_plan_read(db, plan)
+    return to_plan_read(plan)
 
 
 # ---------- 목표 삭제 (R02) ----------
@@ -350,5 +350,5 @@ def delete_goal(db: Session, goal_id: int) -> None:
             plan.total_allocated = sum(a.allocated_amount for a in plan.allocations)
             plan.unallocated = plan.total_income - plan.total_allocated
         else:  # T15: 남은 금액으로 재판정
-            _apply_result(plan, _evaluate_plan(db, plan, {}), set())
+            _apply_result(plan, _evaluate_plan(plan, {}), set())
     db.commit()

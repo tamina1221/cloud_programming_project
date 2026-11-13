@@ -74,14 +74,15 @@ class EngineResult:
 
 
 def _month_index(month: str) -> int:
-    """'YYYY-MM' 문자열을 (연도×12 + 월) 정수로 바꾼다."""
+    """'YYYY-MM' 문자열을 (연도×12 + 월) 정수로 바꾼다. 형식이 틀리면 ValueError."""
+    error = ValueError(f"월 형식이 올바르지 않습니다: {month!r} (YYYY-MM 형식이어야 합니다)")
     try:
         year_str, mon_str = month.split("-")
         year, mon = int(year_str), int(mon_str)
-    except (ValueError, AttributeError):
-        raise ValueError(f"월 형식이 올바르지 않습니다: {month!r} (YYYY-MM 형식이어야 합니다)")
+    except (ValueError, AttributeError) as e:
+        raise error from e
     if len(year_str) != 4 or len(mon_str) != 2 or not 1 <= mon <= 12:
-        raise ValueError(f"월 형식이 올바르지 않습니다: {month!r} (YYYY-MM 형식이어야 합니다)")
+        raise error
     return year * 12 + mon
 
 

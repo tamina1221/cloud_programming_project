@@ -11,7 +11,7 @@ from app.schemas import (
     ExpenseUpdate,
     ExpenseWithBalance,
 )
-from app.services import NotFoundError, get_or_404, month_range
+from app.services import NotFoundError, create_row, delete_row, get_or_404, month_range, update_row
 
 CATEGORY_NAMES = {"fixed": "고정 지출", "living": "생활비"}
 Key = tuple[str, int | None]  # (category, goal_id)
@@ -40,28 +40,19 @@ def get_expense(db: Session, expense_id: int) -> Expense:
 def create_expense(db: Session, data: ExpenseCreate) -> ExpenseWithBalance:
     """소비를 저장하고, 해당 목적의 잔액·초과 여부를 함께 돌려준다 (6.2, AT09, AT10)."""
     _check_goal(db, data.goal_id)
-    expense = Expense(**data.model_dump())
-    db.add(expense)
-    db.commit()
-    db.refresh(expense)
-    return _with_balance(db, expense)
+    return _with_balance(db, create_row(db, Expense, data))
 
 
 def update_expense(db: Session, expense_id: int, data: ExpenseUpdate) -> ExpenseWithBalance:
     """소비를 수정한다 (전체 교체)."""
     expense = get_expense(db, expense_id)
     _check_goal(db, data.goal_id)
-    for field, value in data.model_dump().items():
-        setattr(expense, field, value)
-    db.commit()
-    db.refresh(expense)
-    return _with_balance(db, expense)
+    return _with_balance(db, update_row(db, expense, data))
 
 
 def delete_expense(db: Session, expense_id: int) -> None:
     """소비를 삭제한다."""
-    db.delete(get_expense(db, expense_id))
-    db.commit()
+    delete_row(db, get_expense(db, expense_id))
 
 
 def _with_balance(db: Session, expense: Expense) -> ExpenseWithBalance:

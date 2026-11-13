@@ -26,7 +26,6 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(
 const toInt = (v) => (v === "" || v == null ? null : Number(v));
 
 let currentTab = "input";
-let goalsCache = [];  // 소비 목적 드롭다운·목적 이름 표시용
 
 // ---------- API 호출과 오류 표시 ----------
 
@@ -152,6 +151,26 @@ function remove(path) {
   });
 }
 
+// 표의 [수정] 버튼(data-edit="id")을 누르면 그 행 값으로 폼을 수정 모드로 바꾼다.
+function bindEditButtons(tbody, items, form, toValues = (x) => x) {
+  tbody.querySelectorAll("[data-edit]").forEach((btn) => {
+    const item = items.find((x) => x.id === Number(btn.dataset.edit));
+    btn.addEventListener("click", () => startEdit(form, toValues(item)));
+  });
+}
+
+// 조회 결과가 404(아직 설정·계획이 없음)면 null을 돌려준다.
+async function getOrNull(path) {
+  try {
+    return await api("GET", path);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+const sumAmount = (list) => won(list.reduce((s, x) => s + x.amount, 0));  // 합계 표시용 덧셈
+
 // ---------- 1. 입력 탭 (R01~R04) ----------
 
 async function loadInput() {
@@ -161,7 +180,6 @@ async function loadInput() {
     api("GET", `/fixed-expenses?month=${m}`),
     api("GET", "/goals"),
   ]);
-  goalsCache = goals;
 
   $("#incomeRows").innerHTML = incomes.map((i) => `
     <tr>
@@ -169,35 +187,24 @@ async function loadInput() {
       <td>${LABELS.incomeType[i.income_type]}</td>
       <td class="num">${won(i.amount)}</td>
       <td>${esc(i.memo)}</td>
-      <td><button type="button" data-edit-income="${i.id}">수정</button>
+      <td><button type="button" data-edit="${i.id}">수정</button>
           <button type="button" data-del="/incomes/${i.id}">삭제</button></td>
     </tr>`).join("");
-  $("#incomeTotal").textContent = won(incomes.reduce((s, i) => s + i.amount, 0));
-  $("#incomeRows").querySelectorAll("[data-edit-income]").forEach((btn) => {
-    const income = incomes.find((i) => i.id === Number(btn.dataset.editIncome));
-    btn.addEventListener("click", () => startEdit($("#incomeForm"), income));
-  });
+  $("#incomeTotal").textContent = sumAmount(incomes);
+  bindEditButtons($("#incomeRows"), incomes, $("#incomeForm"));
 
   $("#fixedRows").innerHTML = fixed.map((f) => `
     <tr>
       <td>${esc(f.expense_name)}</td>
       <td class="num">${won(f.amount)}</td>
-      <td><button type="button" data-edit-fixed="${f.id}">수정</button>
+      <td><button type="button" data-edit="${f.id}">수정</button>
           <button type="button" data-del="/fixed-expenses/${f.id}">삭제</button></td>
     </tr>`).join("");
-  $("#fixedTotal").textContent = won(fixed.reduce((s, f) => s + f.amount, 0));
-  $("#fixedRows").querySelectorAll("[data-edit-fixed]").forEach((btn) => {
-    const item = fixed.find((f) => f.id === Number(btn.dataset.editFixed));
-    btn.addEventListener("click", () => startEdit($("#fixedForm"), item));
-  });
+  $("#fixedTotal").textContent = sumAmount(fixed);
+  bindEditButtons($("#fixedRows"), fixed, $("#fixedForm"));
 
-  try {
-    const setting = await api("GET", `/settings/${m}`);
-    $("#settingNow").textContent = won(setting.min_living);
-  } catch (err) {
-    if (!(err instanceof ApiError && err.status === 404)) throw err;
-    $("#settingNow").textContent = "아직 설정하지 않았습니다";
-  }
+  const setting = await getOrNull(`/settings/${m}`);
+  $("#settingNow").textContent = setting ? won(setting.min_living) : "아직 설정하지 않았습니다";
 
   $("#goalRows").innerHTML = goals.map((g) => `
     <tr>
@@ -206,13 +213,10 @@ async function loadInput() {
       <td class="num">${won(g.target_amount)}</td>
       <td class="num">${won(g.current_amount)}</td>
       <td>${esc(g.target_month)}</td>
-      <td><button type="button" data-edit-goal="${g.id}">수정</button>
+      <td><button type="button" data-edit="${g.id}">수정</button>
           <button type="button" data-del="/goals/${g.id}">삭제</button></td>
     </tr>`).join("");
-  $("#goalRows").querySelectorAll("[data-edit-goal]").forEach((btn) => {
-    const goal = goals.find((g) => g.id === Number(btn.dataset.editGoal));
-    btn.addEventListener("click", () => startEdit($("#goalForm"), goal));
-  });
+  bindEditButtons($("#goalRows"), goals, $("#goalForm"));
 }
 
 bindForm($("#incomeForm"), "/incomes", formBody);
@@ -299,12 +303,9 @@ function renderNoPlan() {
 }
 
 async function loadPlan() {
-  try {
-    renderPlan(await api("GET", `/plans/${month()}`), null);
-  } catch (err) {
-    if (!(err instanceof ApiError && err.status === 404)) throw err;
-    renderNoPlan();
-  }
+  const plan = await getOrNull(`/plans/${month()}`);
+  if (plan) renderPlan(plan, null);
+  else renderNoPlan();
 }
 
 function allocate(mode) {
@@ -338,9 +339,9 @@ $("#btnSave").addEventListener("click", async () => {
 
 // ---------- 3. 소비 탭 (R10~R11) ----------
 
-function purposeName(e) {
+function purposeName(e, goals) {
   if (e.category !== "goal") return LABELS.category[e.category];
-  const g = goalsCache.find((x) => x.id === e.goal_id);
+  const g = goals.find((x) => x.id === e.goal_id);
   return g ? g.goal_name : `목표 ${e.goal_id}`;
 }
 
@@ -366,7 +367,6 @@ async function loadExpense() {
     api("GET", `/expenses?month=${month()}`),
     api("GET", "/goals"),
   ]);
-  goalsCache = goals;
 
   const select = $("#expensePurpose");
   const selected = select.value;
@@ -378,16 +378,13 @@ async function loadExpense() {
   $("#expenseRows").innerHTML = expenses.map((e) => `
     <tr>
       <td>${esc(e.expense_date)}</td>
-      <td>${esc(purposeName(e))}</td>
+      <td>${esc(purposeName(e, goals))}</td>
       <td class="num">${won(e.amount)}</td>
       <td>${esc(e.memo)}</td>
-      <td><button type="button" data-edit-expense="${e.id}">수정</button>
+      <td><button type="button" data-edit="${e.id}">수정</button>
           <button type="button" data-del="/expenses/${e.id}">삭제</button></td>
     </tr>`).join("");
-  $("#expenseRows").querySelectorAll("[data-edit-expense]").forEach((btn) => {
-    const e = expenses.find((x) => x.id === Number(btn.dataset.editExpense));
-    btn.addEventListener("click", () => startEdit($("#expenseForm"), { ...e, purpose: purposeValue(e) }));
-  });
+  bindEditButtons($("#expenseRows"), expenses, $("#expenseForm"), (e) => ({ ...e, purpose: purposeValue(e) }));
 }
 
 bindForm($("#expenseForm"), "/expenses", expenseBody, showBalance);

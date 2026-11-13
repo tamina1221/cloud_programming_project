@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models import Income
 from app.routers import MonthQuery
 from app.schemas import IncomeCreate, IncomeRead, IncomeUpdate
-from app.services import get_or_404, month_range
+from app.services import create_row, delete_row, get_or_404, month_range, update_row
 
 router = APIRouter(prefix="/incomes", tags=["수입 (R01)"])
 
@@ -16,11 +16,7 @@ router = APIRouter(prefix="/incomes", tags=["수입 (R01)"])
 @router.post("", response_model=IncomeRead, status_code=status.HTTP_201_CREATED)
 def create_income(data: IncomeCreate, db: Session = Depends(get_db)):
     """수입을 등록한다. 금액 ≤ 0이면 422 (T01)."""
-    income = Income(**data.model_dump())
-    db.add(income)
-    db.commit()
-    db.refresh(income)
-    return income
+    return create_row(db, Income, data)
 
 
 @router.get("", response_model=list[IncomeRead])
@@ -42,16 +38,10 @@ def get_income(income_id: int, db: Session = Depends(get_db)):
 @router.put("/{income_id}", response_model=IncomeRead)
 def update_income(income_id: int, data: IncomeUpdate, db: Session = Depends(get_db)):
     """수입을 수정한다(전체 교체). 배분에 반영하려면 /plans/{month}/allocate를 다시 실행한다 (R08)."""
-    income = get_or_404(db, Income, income_id, "수입")
-    for field, value in data.model_dump().items():
-        setattr(income, field, value)
-    db.commit()
-    db.refresh(income)
-    return income
+    return update_row(db, get_or_404(db, Income, income_id, "수입"), data)
 
 
 @router.delete("/{income_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_income(income_id: int, db: Session = Depends(get_db)):
     """수입을 삭제한다."""
-    db.delete(get_or_404(db, Income, income_id, "수입"))
-    db.commit()
+    delete_row(db, get_or_404(db, Income, income_id, "수입"))

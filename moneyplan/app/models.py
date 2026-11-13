@@ -58,7 +58,6 @@ class Goal(Base):
 
     # FK는 RESTRICT: 삭제 시 서비스가 배분 항목을 먼저 지우고, 소비 기록이 있으면 409 (C19)
     allocations: Mapped[list["Allocation"]] = relationship(back_populates="goal", passive_deletes="all")
-    expenses: Mapped[list["Expense"]] = relationship(back_populates="goal", passive_deletes="all")
 
 
 class FixedExpense(Base):
@@ -115,8 +114,8 @@ class AllocationPlan(Base):
 class Allocation(Base):
     """배분 항목 (category: fixed, living, goal).
 
-    goal_status·next_required는 개발문서 6.4에 없던 컬럼으로, 목표별 상태와
-    다음 달 필요 적립액 R'을 응답에 담기 위해 추가했다 (R07, AT04).
+    goal_status는 목표별 상태, next_required는 다음 달 필요 적립액 R' (6.4, C08).
+    is_manual은 수동 수정으로 금액이 바뀐 항목 (R09, C22).
     """
 
     __tablename__ = "allocation"
@@ -165,5 +164,3 @@ class Expense(Base):
     goal_id: Mapped[int | None] = mapped_column(ForeignKey("goal.id", ondelete="RESTRICT"))
     expense_date: Mapped[date] = mapped_column(Date, index=True)
     memo: Mapped[str | None] = mapped_column(String(200))
-
-    goal: Mapped[Goal | None] = relationship(back_populates="expenses")

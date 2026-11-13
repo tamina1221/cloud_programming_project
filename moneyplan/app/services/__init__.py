@@ -6,6 +6,7 @@
 from datetime import date
 from typing import Any, TypeVar
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import Base
@@ -49,6 +50,30 @@ def get_or_404(db: Session, model: type[ModelT], obj_id: Any, label: str) -> Mod
     if obj is None:
         raise NotFoundError(f"{label}을(를) 찾을 수 없습니다. (id={obj_id})")
     return obj
+
+
+def create_row(db: Session, model: type[ModelT], data: BaseModel) -> ModelT:
+    """요청 본문으로 행을 만들어 저장한다 (단순 등록 공통)."""
+    obj = model(**data.model_dump())
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def update_row(db: Session, obj: ModelT, data: BaseModel) -> ModelT:
+    """요청 본문의 모든 필드로 행을 바꿔 저장한다 (PUT 전체 교체 공통)."""
+    for field, value in data.model_dump().items():
+        setattr(obj, field, value)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def delete_row(db: Session, obj: Base) -> None:
+    """행을 삭제한다 (단순 삭제 공통)."""
+    db.delete(obj)
+    db.commit()
 
 
 def month_range(month: str) -> tuple[date, date]:
