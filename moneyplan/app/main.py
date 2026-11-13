@@ -71,6 +71,15 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": detail}))
 
 
+@app.middleware("http")
+async def revalidate_frontend(request: Request, call_next):
+    """화면 파일은 매번 서버에 새 버전이 있는지 확인하게 한다. 코드를 고친 뒤 브라우저가 예전 app.js를 쓰지 않도록."""
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.endswith((".html", ".js", ".css")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 for module in (incomes, goals, deposits, fixed_expenses, settings, plans, expenses, dashboard):
     app.include_router(module.router)
 
