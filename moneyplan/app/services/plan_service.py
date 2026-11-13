@@ -288,6 +288,7 @@ def update_allocations(db: Session, month: str, items: list[AllocationItem]) -> 
 
     거부: 배분 불가 계획(T17) / 없는 항목 404 / 총배분액 > 총수입(AT08, excess) /
     고정·생활비를 필요 금액보다 줄임(T14). 거부되면 DB 값은 바뀌지 않는다.
+    수정으로 총배분액이 줄면 줄어든 만큼 생활비에 더한다 (C30, T19).
     """
     plan = _require_plan(db, month)
     if plan.status == "infeasible":
@@ -308,7 +309,15 @@ def update_allocations(db: Session, month: str, items: list[AllocationItem]) -> 
             excess=excess,
         )
 
-    result = _evaluate_plan(db, plan, new_amounts)  # 여기까지 DB는 바뀌지 않음
+    result = _evaluate_plan(db, plan, new_amounts)  # 요청 금액 그대로 검증 (T14: 생활비 감액은 여기서 거부)
+
+    # C30: 이번 수정으로 줄어든 금액은 생활비에 더한다. 수정 전부터 있던 미배분 금액은 그대로 둔다.
+    freed = plan.total_allocated - new_total
+    if freed > 0:
+        living = next(a for a in plan.allocations if a.category == "living")
+        new_amounts[living.id] = new_amounts.get(living.id, living.allocated_amount) + freed
+        result = _evaluate_plan(db, plan, new_amounts)
+    # 여기까지 DB는 바뀌지 않음
     changed = {i for i, v in new_amounts.items() if by_id[i].allocated_amount != v}
     _apply_result(plan, result, changed)
     db.commit()

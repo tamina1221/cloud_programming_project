@@ -344,3 +344,32 @@ def test_T18_update_fixed_expense(seeded_client):
         "/fixed-expenses/9999", json={"expense_name": "없음", "amount": 1_000, "month": MONTH}
     )
     assert r.status_code == 404
+
+
+def test_T19_manual_edit_freed_money_to_living(seeded_client):
+    """T19: AT03 상태에서 여행을 0원으로 수정 → 줄어든 200,000원은 생활비로, 미배분 0 (C30)."""
+    s = seeded_client
+    plan = allocate(s).json()["current"]
+    r = put_allocations(s, {alloc_id(plan, "goal", s.travel_id): 0})
+    assert r.status_code == 200, r.json()
+    edited = r.json()
+    assert edited["living_allocated"] == 500_000
+    assert edited["unallocated"] == 0
+    assert edited["total_allocated"] == 900_000
+    assert goal_result(edited, s.travel_id)["status"] == "short"
+    assert edited["status"] == "partial"
+    assert living_balance(s)["allocated"] == 500_000  # 대시보드 생활비 배분액에도 반영
+
+
+def test_T19_existing_unallocated_kept(seeded_client):
+    """T19: 기존 유지로 미배분 200,000이 있을 때 여행을 100,000 줄이면 생활비만 +100,000, 미배분 200,000 유지 (C30)."""
+    s = seeded_client
+    allocate(s)
+    add_allowance(s)
+    plan = allocate(s, "keep").json()["current"]
+    assert plan["unallocated"] == 200_000
+    r = put_allocations(s, {alloc_id(plan, "goal", s.travel_id): 100_000})
+    assert r.status_code == 200, r.json()
+    edited = r.json()
+    assert edited["living_allocated"] == 400_000
+    assert edited["unallocated"] == 200_000
