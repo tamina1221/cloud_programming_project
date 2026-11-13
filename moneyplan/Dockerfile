@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /code
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-# /code는 root 소유라 appuser가 쓸 수 없음 → pytest 캐시(.pytest_cache)를 만들지 않게 한다 (C20)
+# /code는 root 소유라 appuser가 쓸 수 없음 → pytest 캐시(.pytest_cache)를 만들지 않게 한다.
 ENV PYTEST_ADDOPTS="-p no:cacheprovider"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
