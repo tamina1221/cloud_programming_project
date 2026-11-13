@@ -361,12 +361,27 @@ def test_T19_manual_edit_freed_money_to_living(seeded_client):
     assert living_balance(s)["allocated"] == 500_000  # 대시보드 생활비 배분액에도 반영
 
 
-def test_T20_secure_goal(seeded_client):
-    """T20: 여행에 100,000 확보 등록 → 현재 확보액 400,000, 달성률 44.4%, 재배분 시 R = 166,667 (C31)."""
+def deposit(s: Seeded, goal_id: int, amount: int, day: str = "2026-11-15"):
+    """목표 확보를 등록한다."""
+    return s.client.post("/goal-deposits", json={"goal_id": goal_id, "amount": amount, "deposit_date": day})
+
+
+def travel_secured(s: Seeded) -> int:
+    """여행 목표의 현재 확보액."""
+    return next(g for g in s.client.get("/goals").json() if g["id"] == s.travel_id)["current_amount"]
+
+
+def test_T20_goal_deposit(seeded_client):
+    """T20: 여행에 100,000 확보 등록 → 내역 1건, 확보액 400,000, 달성률 44.4%, 재배분 시 R = 166,667.
+    기록을 삭제하면 확보액 300,000으로 돌아감 (C31)."""
     s = seeded_client
-    r = s.client.post(f"/goals/{s.travel_id}/secure", json={"amount": 100_000})
-    assert r.status_code == 200, r.json()
-    assert r.json()["current_amount"] == 400_000
+    r = deposit(s, s.travel_id, 100_000)
+    assert r.status_code == 201, r.json()
+    assert r.json()["goal"]["current_amount"] == 400_000
+
+    deposits = s.client.get("/goal-deposits", params={"month": MONTH}).json()
+    assert [(d["goal_id"], d["amount"]) for d in deposits] == [(s.travel_id, 100_000)]
+    assert s.client.get("/goal-deposits", params={"month": "2026-12"}).json() == []
 
     dashboard = s.client.get(f"/dashboard/{MONTH}").json()
     travel = next(g for g in dashboard["goals"] if g["goal_id"] == s.travel_id)
@@ -377,9 +392,30 @@ def test_T20_secure_goal(seeded_client):
     plan = allocate(s).json()["current"]
     assert goal_result(plan, s.travel_id)["required"] == 166_667
 
+    # 기록을 지우면 확보액에서 다시 뺀다
+    assert s.client.delete(f"/goal-deposits/{deposits[0]['id']}").status_code == 204
+    assert travel_secured(s) == 300_000
+
     # 0원은 422, 없는 목표는 404
-    assert s.client.post(f"/goals/{s.travel_id}/secure", json={"amount": 0}).status_code == 422
-    assert s.client.post("/goals/9999/secure", json={"amount": 1_000}).status_code == 404
+    assert deposit(s, s.travel_id, 0).status_code == 422
+    assert deposit(s, 9999, 1_000).status_code == 404
+
+
+def test_T20_deposit_delete_rules(seeded_client):
+    """T20: 확보액을 직접 줄여 기록보다 적으면 기록 삭제 409. 목표를 지우면 확보 기록도 함께 삭제 (C31)."""
+    s = seeded_client
+    dep_id = deposit(s, s.travel_id, 100_000).json()["deposit"]["id"]
+    r = s.client.put(
+        f"/goals/{s.travel_id}",
+        json={"goal_name": "여행", "target_amount": 900_000, "current_amount": 50_000,
+              "target_month": "2027-01", "priority": 2},
+    )
+    assert r.status_code == 200, r.json()
+    assert s.client.delete(f"/goal-deposits/{dep_id}").status_code == 409
+    assert travel_secured(s) == 50_000
+
+    assert s.client.delete(f"/goals/{s.travel_id}").status_code == 204
+    assert s.client.get("/goal-deposits").json() == []
 
 
 def test_T19_existing_unallocated_kept(seeded_client):

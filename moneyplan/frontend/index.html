@@ -128,9 +128,14 @@
   <form id="secureForm" class="row-form">
     <select name="goal_id" id="secureGoal" required></select>
     <input name="amount" type="number" min="1" step="1" placeholder="모은 금액" required>
+    <input name="deposit_date" type="date" required>
     <button type="submit">확보 등록</button>
   </form>
   <p id="secureResult"></p>
+  <table>
+    <thead><tr><th>날짜</th><th>목표</th><th class="num">확보 금액</th><th></th></tr></thead>
+    <tbody id="depositRows"></tbody>
+  </table>
 </section>
 
 <!-- 4. 대시보드 (R12) -->

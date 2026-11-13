@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Goal
-from app.schemas import GoalCreate, GoalRead, GoalSecure, GoalUpdate
+from app.schemas import GoalCreate, GoalRead, GoalUpdate
 from app.services import create_row, get_or_404, plan_service, update_row
 
 router = APIRouter(prefix="/goals", tags=["목표 (R02)"])
@@ -29,19 +29,6 @@ def list_goals(db: Session = Depends(get_db)):
 def update_goal(goal_id: int, data: GoalUpdate, db: Session = Depends(get_db)):
     """목표를 수정한다(전체 교체). 배분에 반영하려면 재배분을 실행한다 (5.5)."""
     return update_row(db, get_or_404(db, Goal, goal_id, "목표"), data)
-
-
-@router.post("/{goal_id}/secure", response_model=GoalRead)
-def secure_goal(goal_id: int, data: GoalSecure, db: Session = Depends(get_db)):
-    """목표 확보 등록: 실제로 모은 금액을 현재 확보액에 더한다 (C31, T20).
-
-    목표 수정으로 현재 확보액을 바꾸는 것과 같다. 배분에 반영하려면 재배분을 실행한다 (5.5).
-    """
-    goal = get_or_404(db, Goal, goal_id, "목표")
-    goal.current_amount += data.amount
-    db.commit()
-    db.refresh(goal)
-    return goal
 
 
 @router.delete("/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)

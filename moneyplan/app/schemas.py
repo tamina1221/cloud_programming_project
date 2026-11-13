@@ -83,10 +83,28 @@ class GoalRead(ReadModel):
     priority: int
 
 
-class GoalSecure(BaseModel):
-    """목표 확보 등록 요청: 실제로 모은 금액 (C31, T20)."""
+class DepositCreate(BaseModel):
+    """목표 확보 등록 요청: 목표를 위해 실제로 모은 금액 (R02, C31, T20)."""
 
+    goal_id: int
     amount: PositiveAmount
+    deposit_date: date
+
+
+class DepositRead(ReadModel):
+    """목표 확보 기록 응답."""
+
+    id: int
+    goal_id: int
+    amount: int
+    deposit_date: date
+
+
+class DepositResult(BaseModel):
+    """확보 등록 결과: 저장된 기록과 갱신된 목표 (현재 확보액)."""
+
+    deposit: DepositRead
+    goal: GoalRead
 
 
 # ---------- 고정 지출 (R03) ----------

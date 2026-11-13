@@ -95,10 +95,11 @@ cloud_programming_project/
     │   ├── services/            # 계산이 필요한 기능 처리
     │   │   ├── plan_service.py      # 자동 배분·재배분·수동 수정·목표 삭제
     │   │   ├── expense_service.py   # 소비 저장, 목적별 잔액
+    │   │   ├── deposit_service.py   # 목표 확보 기록, 현재 확보액 갱신
     │   │   └── dashboard_service.py # 월별 대시보드
     │   └── routers/             # API 경로
     │       ├── incomes.py  goals.py  fixed_expenses.py  settings.py
-    │       └── plans.py  expenses.py  dashboard.py
+    │       └── plans.py  expenses.py  deposits.py  dashboard.py
     ├── frontend/                # 브라우저 화면
     │   ├── index.html
     │   ├── style.css
@@ -106,7 +107,7 @@ cloud_programming_project/
     ├── tests/
     │   ├── conftest.py          # 테스트용 DB 준비
     │   ├── test_engine.py       # 엔진 테스트 (18개)
-    │   └── test_api.py          # API 테스트 (25개)
+    │   └── test_api.py          # API 테스트 (26개)
     ├── db/init/
     │   └── 01_create_test_db.sql  # 테스트용 DB 생성
     ├── docs/
@@ -129,7 +130,7 @@ routers/ ─── 요청 처리: 경로·월 형식 확인, schemas.py로 입�
  │      └─ 계산이 없는 저장·조회(수입·고정 지출·최소 생활비, 목표 등록·조회·수정)는 여기서 바로 DB 사용
  ▼
 services/ ── 기능 처리: DB에서 값을 모아 엔진에 넘기고 결과를 저장
- │           (배분·재배분·수동 수정·목표 삭제, 소비와 잔액, 대시보드)
+ │           (배분·재배분·수동 수정·목표 삭제, 소비와 잔액, 목표 확보, 대시보드)
  ▼
 engine.py ── 배분 계산 (같은 입력이면 항상 같은 결과)
 

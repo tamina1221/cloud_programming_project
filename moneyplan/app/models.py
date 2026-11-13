@@ -148,6 +148,21 @@ class Allocation(Base):
     goal: Mapped[Goal | None] = relationship(back_populates="allocations")
 
 
+class GoalDeposit(Base):
+    """목표 확보 기록 (R02, C31). 등록하면 목표의 현재 확보액에 더하고, 삭제하면 뺀다.
+
+    목표를 삭제하면 그 목표의 확보 기록도 함께 삭제된다 (CASCADE).
+    """
+
+    __tablename__ = "goal_deposit"
+    __table_args__ = (CheckConstraint("amount > 0", name="ck_deposit_amount_positive"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    goal_id: Mapped[int] = mapped_column(ForeignKey("goal.id", ondelete="CASCADE"), index=True)
+    amount: Mapped[int] = mapped_column(BigInteger)
+    deposit_date: Mapped[date] = mapped_column(Date, index=True)
+
+
 class Expense(Base):
     """소비 기록 (R10). category가 goal이면 goal_id가 있어야 한다."""
 

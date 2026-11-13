@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from app import models  # noqa: F401  create_all이 모든 테이블을 알도록 import
 from app.database import Base
 from app.database import engine as db_engine
-from app.routers import dashboard, expenses, fixed_expenses, goals, incomes, plans, settings
+from app.routers import dashboard, deposits, expenses, fixed_expenses, goals, incomes, plans, settings
 from app.services import ServiceError
 
 
@@ -71,7 +71,7 @@ async def validation_error_handler(_: Request, exc: RequestValidationError) -> J
     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": detail}))
 
 
-for module in (incomes, goals, fixed_expenses, settings, plans, expenses, dashboard):
+for module in (incomes, goals, deposits, fixed_expenses, settings, plans, expenses, dashboard):
     app.include_router(module.router)
 
 

@@ -15,7 +15,7 @@ const LABELS = {
     expense_name: "항목명", month: "월", min_living: "최소 생활비",
     goal_name: "목표명", target_amount: "목표 금액", current_amount: "현재 확보액",
     target_month: "목표 월", priority: "우선순위",
-    category: "목적", goal_id: "목표", expense_date: "날짜",
+    category: "목적", goal_id: "목표", expense_date: "날짜", deposit_date: "날짜",
     items: "배분 항목", allocation_id: "배분 항목", allocated_amount: "배분 금액", mode: "방식",
   },
 };
@@ -363,25 +363,26 @@ function showBalance(res) {
 }
 
 async function loadExpense() {
-  const [expenses, goals] = await Promise.all([
+  const [expenses, goals, deposits] = await Promise.all([
     api("GET", `/expenses?month=${month()}`),
     api("GET", "/goals"),
+    api("GET", `/goal-deposits?month=${month()}`),
   ]);
 
+  // 소비 목적은 고정 지출·생활비만 (C31). 목표에 모은 돈은 아래 "목표 확보 등록"으로 따로 기록한다.
   const select = $("#expensePurpose");
   const selected = select.value;
-  select.innerHTML = `<option value="fixed">고정 지출</option><option value="living">생활비</option>`
-    + goals.map((g) => `<option value="goal:${g.id}">${esc(g.goal_name)}</option>`).join("");
-  if ([...select.options].some((o) => o.value === selected)) select.value = selected;
-  else select.value = "living";
+  select.innerHTML = `<option value="fixed">고정 지출</option><option value="living">생활비</option>`;
+  select.value = selected === "fixed" ? "fixed" : "living";
 
+  // 예전에 목표 목적으로 등록한 소비는 목록에 보여주고 삭제만 할 수 있게 한다.
   $("#expenseRows").innerHTML = expenses.map((e) => `
     <tr>
       <td>${esc(e.expense_date)}</td>
       <td>${esc(purposeName(e, goals))}</td>
       <td class="num">${won(e.amount)}</td>
       <td>${esc(e.memo)}</td>
-      <td><button type="button" data-edit="${e.id}">수정</button>
+      <td>${e.category === "goal" ? "" : `<button type="button" data-edit="${e.id}">수정</button>`}
           <button type="button" data-del="/expenses/${e.id}">삭제</button></td>
     </tr>`).join("");
   bindEditButtons($("#expenseRows"), expenses, $("#expenseForm"), (e) => ({ ...e, purpose: purposeValue(e) }));
@@ -394,19 +395,28 @@ async function loadExpense() {
     : '<option value="" disabled selected>등록된 목표가 없습니다</option>';
   if ([...secure.options].some((o) => o.value === secureSelected)) secure.value = secureSelected;
   $("#secureForm").querySelector('button[type="submit"]').disabled = goals.length === 0;
+
+  // 확보 내역 (그 달). 삭제하면 현재 확보액에서 다시 뺀다.
+  $("#depositRows").innerHTML = deposits.map((d) => `
+    <tr>
+      <td>${esc(d.deposit_date)}</td>
+      <td>${esc(goals.find((g) => g.id === d.goal_id)?.goal_name ?? `목표 ${d.goal_id}`)}</td>
+      <td class="num">${won(d.amount)}</td>
+      <td><button type="button" data-del="/goal-deposits/${d.id}">삭제</button></td>
+    </tr>`).join("");
 }
 
 bindForm($("#expenseForm"), "/expenses", expenseBody, showBalance);
 
-// 목표 확보 등록 (C31, T20): 모은 금액을 현재 확보액에 더한다.
+// 목표 확보 등록 (C31, T20): 확보 기록을 남기고 모은 금액을 현재 확보액에 더한다.
 $("#secureForm").addEventListener("submit", (e) => {
   e.preventDefault();
   run(async () => {
     const form = e.target;
-    const goal = await api("POST", `/goals/${form.elements.goal_id.value}/secure`, {
-      amount: toInt(form.elements.amount.value),
-    });
-    form.elements.amount.value = "";
+    const goalId = form.elements.goal_id.value;
+    const { goal } = await api("POST", "/goal-deposits", { ...formBody(form), goal_id: Number(goalId) });
+    resetForm(form);
+    form.elements.goal_id.value = goalId;
     $("#secureResult").textContent =
       `${goal.goal_name} 현재 확보액: ${won(goal.current_amount)} / ${won(goal.target_amount)}`;
     await loadTab();
