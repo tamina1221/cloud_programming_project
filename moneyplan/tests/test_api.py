@@ -361,6 +361,27 @@ def test_T19_manual_edit_freed_money_to_living(seeded_client):
     assert living_balance(s)["allocated"] == 500_000  # 대시보드 생활비 배분액에도 반영
 
 
+def test_T20_secure_goal(seeded_client):
+    """T20: 여행에 100,000 확보 등록 → 현재 확보액 400,000, 달성률 44.4%, 재배분 시 R = 166,667 (C31)."""
+    s = seeded_client
+    r = s.client.post(f"/goals/{s.travel_id}/secure", json={"amount": 100_000})
+    assert r.status_code == 200, r.json()
+    assert r.json()["current_amount"] == 400_000
+
+    dashboard = s.client.get(f"/dashboard/{MONTH}").json()
+    travel = next(g for g in dashboard["goals"] if g["goal_id"] == s.travel_id)
+    assert travel["secured_amount"] == 400_000
+    assert travel["achievement_rate"] == 44.4
+
+    # 재배분하면 새 확보액으로 필요 적립액을 다시 계산: ⌈(900,000 − 400,000) ÷ 3⌉
+    plan = allocate(s).json()["current"]
+    assert goal_result(plan, s.travel_id)["required"] == 166_667
+
+    # 0원은 422, 없는 목표는 404
+    assert s.client.post(f"/goals/{s.travel_id}/secure", json={"amount": 0}).status_code == 422
+    assert s.client.post("/goals/9999/secure", json={"amount": 1_000}).status_code == 404
+
+
 def test_T19_existing_unallocated_kept(seeded_client):
     """T19: 기존 유지로 미배분 200,000이 있을 때 여행을 100,000 줄이면 생활비만 +100,000, 미배분 200,000 유지 (C30)."""
     s = seeded_client

@@ -385,9 +385,33 @@ async function loadExpense() {
           <button type="button" data-del="/expenses/${e.id}">삭제</button></td>
     </tr>`).join("");
   bindEditButtons($("#expenseRows"), expenses, $("#expenseForm"), (e) => ({ ...e, purpose: purposeValue(e) }));
+
+  // 목표 확보 등록 (C31): 목표 선택 목록
+  const secure = $("#secureGoal");
+  const secureSelected = secure.value;
+  secure.innerHTML = goals.length
+    ? goals.map((g) => `<option value="${g.id}">${esc(g.goal_name)}</option>`).join("")
+    : '<option value="" disabled selected>등록된 목표가 없습니다</option>';
+  if ([...secure.options].some((o) => o.value === secureSelected)) secure.value = secureSelected;
+  $("#secureForm").querySelector('button[type="submit"]').disabled = goals.length === 0;
 }
 
 bindForm($("#expenseForm"), "/expenses", expenseBody, showBalance);
+
+// 목표 확보 등록 (C31, T20): 모은 금액을 현재 확보액에 더한다.
+$("#secureForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  run(async () => {
+    const form = e.target;
+    const goal = await api("POST", `/goals/${form.elements.goal_id.value}/secure`, {
+      amount: toInt(form.elements.amount.value),
+    });
+    form.elements.amount.value = "";
+    $("#secureResult").textContent =
+      `${goal.goal_name} 현재 확보액: ${won(goal.current_amount)} / ${won(goal.target_amount)}`;
+    await loadTab();
+  });
+});
 
 // ---------- 4. 대시보드 탭 (R12) ----------
 
@@ -428,6 +452,7 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
     document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === btn));
     document.querySelectorAll(".tab").forEach((s) => { s.hidden = s.id !== `tab-${currentTab}`; });
     $("#expenseBalance").innerHTML = "";
+    $("#secureResult").textContent = "";
     run(loadTab);
   });
 });
@@ -436,6 +461,7 @@ $("#month").addEventListener("change", () => {
   if (!month()) return;
   document.querySelectorAll("form").forEach(resetForm);
   $("#expenseBalance").innerHTML = "";
+  $("#secureResult").textContent = "";
   run(loadTab);
 });
 

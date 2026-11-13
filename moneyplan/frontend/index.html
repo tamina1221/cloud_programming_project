@@ -122,6 +122,15 @@
     <thead><tr><th>날짜</th><th>목적</th><th class="num">금액</th><th>메모</th><th></th></tr></thead>
     <tbody id="expenseRows"></tbody>
   </table>
+
+  <h2>목표 확보 등록</h2>
+  <p class="muted">목표를 위해 실제로 모은 돈을 등록하면 현재 확보액과 목표 달성률에 반영됩니다. 필요 적립액에 반영하려면 재배분하세요.</p>
+  <form id="secureForm" class="row-form">
+    <select name="goal_id" id="secureGoal" required></select>
+    <input name="amount" type="number" min="1" step="1" placeholder="모은 금액" required>
+    <button type="submit">확보 등록</button>
+  </form>
+  <p id="secureResult"></p>
 </section>
 
 <!-- 4. 대시보드 (R12) -->

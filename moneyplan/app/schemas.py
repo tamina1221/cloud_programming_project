@@ -83,6 +83,12 @@ class GoalRead(ReadModel):
     priority: int
 
 
+class GoalSecure(BaseModel):
+    """목표 확보 등록 요청: 실제로 모은 금액 (C31, T20)."""
+
+    amount: PositiveAmount
+
+
 # ---------- 고정 지출 (R03) ----------
 
 class FixedExpenseCreate(BaseModel):

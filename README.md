@@ -106,7 +106,7 @@ cloud_programming_project/
     ├── tests/
     │   ├── conftest.py          # 테스트용 DB 준비
     │   ├── test_engine.py       # 엔진 테스트 (18개)
-    │   └── test_api.py          # API 테스트 (24개)
+    │   └── test_api.py          # API 테스트 (25개)
     ├── db/init/
     │   └── 01_create_test_db.sql  # 테스트용 DB 생성
     ├── docs/
