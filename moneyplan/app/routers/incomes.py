@@ -8,8 +8,7 @@ from app.database import get_db
 from app.models import Income
 from app.routers import MonthQuery
 from app.schemas import IncomeCreate, IncomeRead, IncomeUpdate
-from app.services import get_or_404
-from app.services.plan_service import month_range
+from app.services import get_or_404, month_range
 
 router = APIRouter(prefix="/incomes", tags=["수입 (R01)"])
 

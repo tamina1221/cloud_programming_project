@@ -11,8 +11,7 @@ from app.schemas import (
     ExpenseUpdate,
     ExpenseWithBalance,
 )
-from app.services import NotFoundError, get_or_404
-from app.services.plan_service import month_range
+from app.services import NotFoundError, get_or_404, month_range
 
 CATEGORY_NAMES = {"fixed": "고정 지출", "living": "생활비"}
 Key = tuple[str, int | None]  # (category, goal_id)

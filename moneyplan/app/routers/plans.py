@@ -1,4 +1,4 @@
-"""배분 계획 API: 자동 배분·재배분, 조회, 수동 수정, 확정 (R05~R09)."""
+"""배분 계획 API: 자동 배분·재배분, 조회, 수동 수정 (R05~R09)."""
 
 from typing import Annotated
 
@@ -33,11 +33,5 @@ def get_plan(month: MonthPath, db: Session = Depends(get_db)):
 
 @router.put("/{month}/allocations", response_model=PlanRead)
 def update_allocations(month: MonthPath, data: AllocationUpdate, db: Session = Depends(get_db)):
-    """배분 금액을 수동 수정한다. 총배분액 > 총수입이면 400과 초과액 (R09, AT08)."""
+    """배분 금액을 수동 수정하고 상태를 재판정한다 (R09, C18). 거부 시 400 (AT08, T14, T17), 없는 항목 404."""
     return plan_service.update_allocations(db, month, data.items)
-
-
-@router.post("/{month}/confirm", response_model=PlanRead)
-def confirm(month: MonthPath, db: Session = Depends(get_db)):
-    """배분 계획을 확정한다. 배분 불가 상태면 400 (R08)."""
-    return plan_service.confirm(db, month)

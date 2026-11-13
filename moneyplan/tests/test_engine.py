@@ -8,6 +8,7 @@ from app.engine import (
     EngineInput,
     GoalInput,
     allocate,
+    evaluate,
     keep_existing,
     months_between,
     required_amount,
@@ -176,3 +177,53 @@ def test_T09_keep_rejected_on_income_decrease(base_input):
     before = allocate(base_input)
     with pytest.raises(ValueError, match="재배분"):
         keep_existing(before, 700_000)
+
+
+def test_T12_keep_rejected_when_infeasible(base_input):
+    """T12: 배분 불가(수입 400,000) 후 600,000으로 늘리고 '기존 유지' → 거부, 재배분 안내 (C17)."""
+    before = allocate(replace(base_input, total_income=400_000))
+    assert before.status == "infeasible"
+    with pytest.raises(ValueError, match="재배분"):
+        keep_existing(before, 600_000)
+
+
+def test_T13_evaluate_after_manual_edit(base_input):
+    """T13: 수입 700,000에서 비상금 100,000, 여행 100,000으로 수정 → 두 목표 short, 계획 partial (5.6 예)."""
+    inp = replace(base_input, total_income=700_000)
+    result = evaluate(inp, 200_000, 300_000, {EMERGENCY_ID: 100_000, TRAVEL_ID: 100_000})
+    emergency, travel = goal_of(result, EMERGENCY_ID), goal_of(result, TRAVEL_ID)
+    assert emergency.status == "short"
+    assert emergency.next_required == 220_000
+    assert travel.status == "short"
+    assert travel.next_required == 250_000
+    assert result.status == "partial"
+    assert result.unallocated == 0
+
+
+def test_T13_evaluate_goal_over_required(base_input):
+    """T13: 비상금에 R보다 많은 400,000, 여행 0 → 비상금 full, 여행 short(R' 300,000), 계획 partial."""
+    result = evaluate(base_input, 200_000, 300_000, {EMERGENCY_ID: 400_000, TRAVEL_ID: 0})
+    emergency, travel = goal_of(result, EMERGENCY_ID), goal_of(result, TRAVEL_ID)
+    assert emergency.status == "full"
+    assert emergency.allocated == 400_000
+    assert emergency.lacking == 0
+    assert travel.status == "short"
+    assert travel.next_required == 300_000
+    assert result.status == "partial"
+
+
+def test_T14_evaluate_rejects_living_below_minimum(base_input):
+    """T14: 생활비를 최소 생활비(300,000)보다 적은 200,000으로 수정 → 거부 (C18)."""
+    with pytest.raises(ValueError, match="줄일 수 없습니다"):
+        evaluate(base_input, 200_000, 200_000, {EMERGENCY_ID: 200_000, TRAVEL_ID: 200_000})
+
+
+def test_evaluate_matches_allocate(base_input):
+    """allocate 결과의 금액을 그대로 evaluate에 넣으면 같은 판정이 나온다 (5.6)."""
+    r = allocate(base_input)
+    e = evaluate(
+        base_input, r.fixed_allocated, r.living_allocated, {g.goal_id: g.allocated for g in r.goals}
+    )
+    assert e.status == r.status
+    assert e.goals == r.goals
+    assert e.unallocated == r.unallocated

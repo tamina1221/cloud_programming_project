@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MoneyPlan</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- MoneyPlan 화면 (N07, C21): API를 호출하고 응답을 보여줄 뿐 금액을 계산하지 않는다 -->
+<header>
+  <h1>MoneyPlan</h1>
+  <label>기준 월 <input type="month" id="month" value="2026-11"></label>
+</header>
+
+<div id="alert" class="alert" hidden></div>
+
+<nav class="tabs">
+  <button type="button" data-tab="input" class="active">입력</button>
+  <button type="button" data-tab="plan">배분</button>
+  <button type="button" data-tab="expense">소비</button>
+  <button type="button" data-tab="dashboard">대시보드</button>
+</nav>
+
+<!-- 1. 입력 (R01~R04) -->
+<section id="tab-input" class="tab">
+  <h2>수입</h2>
+  <form id="incomeForm" class="row-form">
+    <input name="amount" type="number" min="1" step="1" placeholder="금액" required>
+    <select name="income_type">
+      <option value="salary">급여</option>
+      <option value="allowance">용돈</option>
+      <option value="etc">기타</option>
+    </select>
+    <input name="income_date" type="date" required>
+    <input name="memo" type="text" placeholder="메모" maxlength="200">
+    <button type="submit">등록</button>
+    <button type="button" class="cancel" hidden>취소</button>
+  </form>
+  <table>
+    <thead><tr><th>날짜</th><th>유형</th><th class="num">금액</th><th>메모</th><th></th></tr></thead>
+    <tbody id="incomeRows"></tbody>
+    <tfoot><tr><th colspan="2">합계</th><th class="num" id="incomeTotal"></th><th colspan="2"></th></tr></tfoot>
+  </table>
+
+  <h2>고정 지출</h2>
+  <form id="fixedForm" class="row-form">
+    <input name="expense_name" type="text" placeholder="항목명" maxlength="100" required>
+    <input name="amount" type="number" min="1" step="1" placeholder="금액" required>
+    <button type="submit">등록</button>
+  </form>
+  <table>
+    <thead><tr><th>항목</th><th class="num">금액</th><th></th></tr></thead>
+    <tbody id="fixedRows"></tbody>
+    <tfoot><tr><th>합계</th><th class="num" id="fixedTotal"></th><th></th></tr></tfoot>
+  </table>
+
+  <h2>최소 생활비</h2>
+  <p>현재 값: <strong id="settingNow"></strong></p>
+  <form id="settingForm" class="row-form">
+    <input name="min_living" type="number" min="1" step="1" placeholder="금액" required>
+    <button type="submit">저장</button>
+  </form>
+
+  <h2>목표</h2>
+  <form id="goalForm" class="row-form">
+    <input name="goal_name" type="text" placeholder="목표명" maxlength="100" required>
+    <input name="target_amount" type="number" min="1" step="1" placeholder="목표 금액" required>
+    <input name="current_amount" type="number" min="0" step="1" placeholder="현재 확보액" value="0" required title="현재 확보액">
+    <input name="target_month" type="month" required title="목표 월">
+    <input name="priority" type="number" min="1" step="1" placeholder="우선순위" value="1" required title="우선순위 (1이 가장 높음)">
+    <button type="submit">등록</button>
+    <button type="button" class="cancel" hidden>취소</button>
+  </form>
+  <table>
+    <thead><tr><th>우선순위</th><th>목표명</th><th class="num">목표 금액</th><th class="num">현재 확보액</th><th>목표 월</th><th></th></tr></thead>
+    <tbody id="goalRows"></tbody>
+  </table>
+</section>
+
+<!-- 2. 배분 (R05~R09) -->
+<section id="tab-plan" class="tab" hidden>
+  <div class="toolbar">
+    <button type="button" id="btnAllocate">자동 배분</button>
+    <button type="button" id="btnKeep">기존 유지</button>
+    <span id="planBadge"></span>
+  </div>
+  <div id="planMessages"></div>
+  <p id="planEmpty" class="muted" hidden>아직 배분 계획이 없습니다. [자동 배분]을 눌러 주세요.</p>
+  <div id="planBody" hidden>
+    <table>
+      <thead id="planHead"></thead>
+      <tbody id="planRows"></tbody>
+    </table>
+    <dl class="totals">
+      <dt>총수입</dt><dd id="planIncome"></dd>
+      <dt>총배분액</dt><dd id="planAllocated"></dd>
+      <dt>미배분 금액</dt><dd id="planUnallocated"></dd>
+    </dl>
+    <div class="toolbar">
+      <button type="button" id="btnSave">수정 저장</button>
+      <span id="planError" class="error-text"></span>
+    </div>
+  </div>
+</section>
+
+<!-- 3. 소비 (R10~R11) -->
+<section id="tab-expense" class="tab" hidden>
+  <h2>소비 등록</h2>
+  <form id="expenseForm" class="row-form">
+    <input name="amount" type="number" min="1" step="1" placeholder="금액" required>
+    <select name="purpose" id="expensePurpose"></select>
+    <input name="expense_date" type="date" required>
+    <input name="memo" type="text" placeholder="메모" maxlength="200">
+    <button type="submit">등록</button>
+    <button type="button" class="cancel" hidden>취소</button>
+  </form>
+  <p id="expenseBalance"></p>
+  <table>
+    <thead><tr><th>날짜</th><th>목적</th><th class="num">금액</th><th>메모</th><th></th></tr></thead>
+    <tbody id="expenseRows"></tbody>
+  </table>
+</section>
+
+<!-- 4. 대시보드 (R12) -->
+<section id="tab-dashboard" class="tab" hidden>
+  <p>수입 합계 <strong id="dashIncome"></strong> <span id="dashBadge"></span></p>
+  <p id="dashWarning" class="warning" hidden>수입이 바뀌었습니다. 재배분이 필요합니다.</p>
+  <p id="dashNoPlan" class="muted" hidden>이 달의 배분 계획이 없습니다.</p>
+  <h2>목적별 잔액</h2>
+  <table>
+    <thead><tr><th>목적</th><th class="num">배분액</th><th class="num">소비액</th><th class="num">잔액</th></tr></thead>
+    <tbody id="balanceRows"></tbody>
+  </table>
+  <h2>목표 달성률</h2>
+  <div id="goalBars"></div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

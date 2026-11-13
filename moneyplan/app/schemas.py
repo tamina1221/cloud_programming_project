@@ -119,10 +119,8 @@ class SettingRead(ReadModel):
 
 # ---------- 배분 계획 (R05~R09) ----------
 
-class GoalResultRead(BaseModel):
+class GoalResultRead(ReadModel):
     """목표별 배분 결과 — 엔진 GoalResult와 같은 필드 (R05, R07)."""
-
-    model_config = ConfigDict(from_attributes=True)
 
     goal_id: int
     name: str
@@ -149,10 +147,9 @@ class AllocationRead(ReadModel):
 
 
 class PlanRead(BaseModel):
-    """배분 계획 응답: 엔진 EngineResult 필드 + month, confirmed, allocations."""
+    """배분 계획 응답: 엔진 EngineResult 필드 + month, allocations."""
 
     month: str
-    confirmed: bool
     status: PlanStatus
     total_income: int
     fixed_allocated: int

@@ -16,10 +16,9 @@ def achievement_rate(secured: int, target: int) -> float:
 
 def get_dashboard(db: Session, month: str) -> DashboardRead:
     """선택한 월의 수입·배분·잔액·배분 상태·목표 달성률 (R12). 다른 월 데이터는 섞지 않는다 (T11)."""
-    confirmed = plan_service.secured_from_confirmed(db, month)
     goals = []
     for g in db.scalars(select(Goal).order_by(Goal.priority, Goal.target_month, Goal.id)):
-        c = plan_service.secured_amount(g, confirmed)
+        c = g.current_amount  # 확보액 C = 사용자가 입력한 현재 확보액 (5.1, C11, C16)
         goals.append(
             GoalProgressRead(
                 goal_id=g.id,

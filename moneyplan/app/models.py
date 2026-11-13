@@ -4,18 +4,16 @@ Income, Goal, FixedExpense, MonthlySetting, AllocationPlan, Allocation, Expense.
 금액은 모두 정수(원) 컬럼이다 (N01). 월은 "YYYY-MM" 문자열이다.
 """
 
-from datetime import date, datetime
+from datetime import date
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     ForeignKey,
     Integer,
     String,
-    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,7 +40,7 @@ class Income(Base):
 
 
 class Goal(Base):
-    """목표 (R02). created_at·id는 우선순위·목표 월이 같을 때 등록 순 정렬에 쓴다 (N04)."""
+    """목표 (R02). 우선순위·목표 월이 같으면 id(등록 순)로 정렬한다 (N04, 6.4)."""
 
     __tablename__ = "goal"
     __table_args__ = (
@@ -57,9 +55,8 @@ class Goal(Base):
     current_amount: Mapped[int] = mapped_column(BigInteger, default=0)
     target_month: Mapped[str] = mapped_column(String(MONTH_LEN))
     priority: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    # 연결된 배분·소비가 있으면 삭제를 막는다 → 서비스에서 확인 후 409 (FK는 RESTRICT)
+    # FK는 RESTRICT: 삭제 시 서비스가 배분 항목을 먼저 지우고, 소비 기록이 있으면 409 (C19)
     allocations: Mapped[list["Allocation"]] = relationship(back_populates="goal", passive_deletes="all")
     expenses: Mapped[list["Expense"]] = relationship(back_populates="goal", passive_deletes="all")
 
@@ -104,7 +101,6 @@ class AllocationPlan(Base):
     total_allocated: Mapped[int] = mapped_column(BigInteger)
     unallocated: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(20))
-    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     shortage: Mapped[int] = mapped_column(BigInteger, default=0)
     shortage_target: Mapped[str | None] = mapped_column(String(10))
 

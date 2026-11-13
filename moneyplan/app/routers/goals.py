@@ -1,13 +1,13 @@
 """목표 관리 API (R02)."""
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Allocation, Expense, Goal
+from app.models import Goal
 from app.schemas import GoalCreate, GoalRead, GoalUpdate
-from app.services import ConflictError, get_or_404
+from app.services import get_or_404, plan_service
 
 router = APIRouter(prefix="/goals", tags=["목표 (R02)"])
 
@@ -42,12 +42,5 @@ def update_goal(goal_id: int, data: GoalUpdate, db: Session = Depends(get_db)):
 
 @router.delete("/{goal_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_goal(goal_id: int, db: Session = Depends(get_db)):
-    """목표를 삭제한다. 연결된 배분·소비 기록이 있으면 409."""
-    goal = get_or_404(db, Goal, goal_id, "목표")
-    has_alloc = db.scalar(select(exists().where(Allocation.goal_id == goal_id)))
-    has_expense = db.scalar(select(exists().where(Expense.goal_id == goal_id)))
-    if has_alloc or has_expense:
-        linked = "·".join(x for x, on in (("배분 계획", has_alloc), ("소비 기록", has_expense)) if on)
-        raise ConflictError(f"'{goal.goal_name}' 목표에 연결된 {linked}이 있어 삭제할 수 없습니다.")
-    db.delete(goal)
-    db.commit()
+    """목표를 삭제하고 계획을 재판정한다. 소비 기록이 있으면 409 (R02, C19, T15, T16)."""
+    plan_service.delete_goal(db, goal_id)

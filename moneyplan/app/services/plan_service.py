@@ -1,9 +1,8 @@
-"""배분 계획 서비스: 엔진 입력 수집, 자동 배분·재배분, 수동 수정, 확정 (R05~R09, 개발문서 6.2)."""
+"""배분 계획 서비스: 엔진 입력 수집, 자동 배분·재배분, 수동 수정, 목표 삭제 (R02, R05~R09, 개발문서 6.2)."""
 
-from datetime import date
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app.engine import (
@@ -11,11 +10,12 @@ from app.engine import (
     EngineResult,
     GoalInput,
     GoalResult,
+    evaluate,
     keep_existing,
     months_between,
 )
 from app.engine import allocate as engine_allocate
-from app.models import Allocation, AllocationPlan, FixedExpense, Goal, Income, MonthlySetting
+from app.models import Allocation, AllocationPlan, Expense, FixedExpense, Goal, Income, MonthlySetting
 from app.schemas import (
     AllocateResponse,
     AllocationItem,
@@ -23,19 +23,24 @@ from app.schemas import (
     GoalResultRead,
     PlanRead,
 )
-from app.services import BadRequestError, ConflictError, NotFoundError
+from app.services import BadRequestError, ConflictError, NotFoundError, get_or_404, month_range
 
 Mode = Literal["reallocate", "keep"]
 
 
 # ---------- 공통 조회 ----------
 
-def month_range(month: str) -> tuple[date, date]:
-    """'YYYY-MM'의 [첫날, 다음 달 첫날) 범위. 날짜 컬럼을 월로 거를 때 쓴다 (T11)."""
-    year, mon = int(month[:4]), int(month[5:7])
-    start = date(year, mon, 1)
-    end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
-    return start, end
+def _goal_input(g: Goal) -> GoalInput:
+    """Goal 행을 엔진 입력으로 바꾼다. 확보액 C = 현재 확보액 (5.1, C16)."""
+    return GoalInput(
+        goal_id=g.id,
+        name=g.goal_name,
+        target_amount=g.target_amount,
+        secured_amount=g.current_amount,
+        target_month=g.target_month,
+        priority=g.priority,
+        created_order=g.id,  # 등록 순 (N04)
+    )
 
 
 def total_income(db: Session, month: str) -> int:
@@ -47,26 +52,6 @@ def total_income(db: Session, month: str) -> int:
     return int(db.scalar(stmt))
 
 
-def secured_from_confirmed(db: Session, month: str) -> dict[int, int]:
-    """month보다 이전 월의 확정(confirmed) 계획에서 목표별로 배분된 금액 합계 (5.1)."""
-    stmt = (
-        select(Allocation.goal_id, func.sum(Allocation.allocated_amount))
-        .join(AllocationPlan, Allocation.plan_id == AllocationPlan.id)
-        .where(
-            AllocationPlan.confirmed.is_(True),
-            AllocationPlan.month < month,  # "YYYY-MM"은 문자열 비교 = 시간 순서
-            Allocation.category == "goal",
-        )
-        .group_by(Allocation.goal_id)
-    )
-    return {goal_id: int(total) for goal_id, total in db.execute(stmt)}
-
-
-def secured_amount(goal: Goal, confirmed: dict[int, int]) -> int:
-    """확보액 C = 사용자가 입력한 현재 확보액 + 이전 달까지 확정된 배분 합계 (5.1)."""
-    return goal.current_amount + confirmed.get(goal.id, 0)
-
-
 def build_engine_input(db: Session, month: str) -> EngineInput:
     """DB에서 해당 월의 엔진 입력(I, F, L, 목표 목록)을 모은다 (5.1, 6.2)."""
     setting = db.get(MonthlySetting, month)
@@ -76,26 +61,29 @@ def build_engine_input(db: Session, month: str) -> EngineInput:
     fixed_total = db.scalar(
         select(func.coalesce(func.sum(FixedExpense.amount), 0)).where(FixedExpense.month == month)
     )
-    confirmed = secured_from_confirmed(db, month)
     goals = db.scalars(select(Goal).order_by(Goal.id)).all()
-    goal_inputs = [
-        GoalInput(
-            goal_id=g.id,
-            name=g.goal_name,
-            target_amount=g.target_amount,
-            secured_amount=secured_amount(g, confirmed),
-            target_month=g.target_month,
-            priority=g.priority,
-            created_order=g.id,  # 등록 순 (N04)
-        )
-        for g in goals
-    ]
     return EngineInput(
         month=month,
         total_income=total_income(db, month),
         fixed_total=int(fixed_total),
         min_living=setting.min_living,
-        goals=goal_inputs,
+        goals=[_goal_input(g) for g in goals],
+    )
+
+
+def _plan_engine_input(db: Session, plan: AllocationPlan) -> EngineInput:
+    """저장된 계획 기준 엔진 입력 (수동 수정·목표 삭제용, 5.6).
+
+    I는 계획의 총수입, F·L은 고정·생활비 행의 필요 금액. 목표는 이 계획에 행이 있는 것만
+    현재 Goal 값으로 넣는다. 계획 이후 등록한 목표는 재배분해야 반영된다 (8.4 U03).
+    """
+    rows = {a.category: a for a in plan.allocations if a.category != "goal"}
+    return EngineInput(
+        month=plan.month,
+        total_income=plan.total_income,
+        fixed_total=rows["fixed"].required_amount,
+        min_living=rows["living"].required_amount,
+        goals=[_goal_input(a.goal) for a in plan.allocations if a.category == "goal"],
     )
 
 
@@ -121,7 +109,6 @@ def to_plan_read(db: Session, plan: AllocationPlan) -> PlanRead:
 
     n·S는 저장하지 않으므로 목표 월과 확보액으로 다시 계산한다. lacking = max(R − a, 0).
     """
-    confirmed = secured_from_confirmed(db, plan.month)
     fixed_alloc = living_alloc = 0
     goal_results: list[GoalResultRead] = []
     for a in plan.allocations:
@@ -137,7 +124,7 @@ def to_plan_read(db: Session, plan: AllocationPlan) -> PlanRead:
                     name=g.goal_name,
                     status=a.goal_status,
                     remaining_months=months_between(plan.month, g.target_month),
-                    shortfall_total=g.target_amount - secured_amount(g, confirmed),
+                    shortfall_total=g.target_amount - g.current_amount,
                     required=a.required_amount,
                     allocated=a.allocated_amount,
                     lacking=max(a.required_amount - a.allocated_amount, 0),
@@ -146,7 +133,6 @@ def to_plan_read(db: Session, plan: AllocationPlan) -> PlanRead:
             )
     return PlanRead(
         month=plan.month,
-        confirmed=plan.confirmed,
         status=plan.status,
         total_income=plan.total_income,
         fixed_allocated=fixed_alloc,
@@ -203,8 +189,9 @@ def _allocation_rows(inp: EngineInput, result: EngineResult) -> list[Allocation]
 def allocate(db: Session, month: str, mode: Mode = "reallocate") -> AllocateResponse:
     """자동 배분·재배분을 실행하고 기존 계획과 새 계획을 함께 돌려준다 (5.5).
 
-    - reallocate: 엔진을 다시 실행해 배분을 새로 저장한다. 수동 수정·확정은 초기화된다 (AT04, AT06).
-    - keep: 기존 배분은 그대로, 수입 증가분을 미배분 금액에 더한다 (AT07). 수입이 줄었으면 409 (T09).
+    - reallocate: 엔진을 다시 실행해 배분을 새로 저장한다. 수동 수정은 초기화된다 (AT04, AT06).
+    - keep: 기존 배분은 그대로, 수입 증가분을 미배분 금액에 더한다 (AT07).
+      수입이 줄었거나(T09) 기존 계획이 배분 불가면(T12, C17) 409.
     """
     plan = _get_plan(db, month)
     previous = to_plan_read(db, plan) if plan is not None else None
@@ -235,7 +222,6 @@ def allocate(db: Session, month: str, mode: Mode = "reallocate") -> AllocateResp
         plan.status = result.status
         plan.shortage = result.shortage
         plan.shortage_target = result.shortage_target
-        plan.confirmed = False
         plan.allocations.extend(_allocation_rows(inp, result))
 
     db.commit()
@@ -256,9 +242,57 @@ def find_plan(db: Session, month: str) -> PlanRead | None:
 
 # ---------- 수동 수정 (R09) ----------
 
+def _evaluate_plan(db: Session, plan: AllocationPlan, amounts: dict[int, int]) -> EngineResult:
+    """배분 항목 id → 금액(없으면 저장된 금액)으로 엔진 evaluate를 호출한다 (5.6)."""
+    fixed = living = 0
+    goal_allocated: dict[int, int] = {}
+    for a in plan.allocations:
+        amount = amounts.get(a.id, a.allocated_amount)
+        if a.category == "fixed":
+            fixed = amount
+        elif a.category == "living":
+            living = amount
+        else:
+            goal_allocated[a.goal_id] = amount
+    try:
+        return evaluate(_plan_engine_input(db, plan), fixed, living, goal_allocated)
+    except ValueError as e:  # T14: 고정·생활비 감액 등
+        raise BadRequestError(str(e)) from e
+
+
+def _apply_result(plan: AllocationPlan, result: EngineResult, manual_ids: set[int]) -> None:
+    """재판정 결과를 계획과 배분 행에 반영한다. manual_ids의 행은 수동 수정으로 표시 (R09)."""
+    by_goal = {g.goal_id: g for g in result.goals}
+    for a in plan.allocations:
+        if a.category == "fixed":
+            a.allocated_amount = result.fixed_allocated
+        elif a.category == "living":
+            a.allocated_amount = result.living_allocated
+        else:
+            g = by_goal[a.goal_id]
+            a.allocated_amount = g.allocated
+            a.required_amount = g.required
+            a.goal_status = g.status
+            a.next_required = g.next_required
+        if a.id in manual_ids:
+            a.is_manual = True
+    plan.status = result.status
+    plan.total_allocated = result.total_allocated
+    plan.unallocated = result.unallocated
+    plan.shortage = result.shortage
+    plan.shortage_target = result.shortage_target
+
+
 def update_allocations(db: Session, month: str, items: list[AllocationItem]) -> PlanRead:
-    """배분 금액을 직접 고친다. 총배분액이 총수입을 넘으면 저장 거부하고 초과액을 알려준다 (AT08)."""
+    """배분 금액을 직접 고치고 상태를 다시 판정한다 (R09, 5.6, C18).
+
+    거부: 배분 불가 계획(T17) / 없는 항목 404 / 총배분액 > 총수입(AT08, excess) /
+    고정·생활비를 필요 금액보다 줄임(T14). 거부되면 DB 값은 바뀌지 않는다.
+    """
     plan = _require_plan(db, month)
+    if plan.status == "infeasible":
+        raise BadRequestError("배분 불가 상태의 계획은 수정할 수 없습니다. 수입이나 설정을 조정한 뒤 재배분하세요.")
+
     by_id = {a.id: a for a in plan.allocations}
     missing = [item.allocation_id for item in items if item.allocation_id not in by_id]
     if missing:
@@ -268,38 +302,44 @@ def update_allocations(db: Session, month: str, items: list[AllocationItem]) -> 
     new_total = sum(new_amounts.get(a.id, a.allocated_amount) for a in plan.allocations)
     if new_total > plan.total_income:
         excess = new_total - plan.total_income
-        db.rollback()
         raise BadRequestError(
             f"총배분액 {new_total:,}원이 총수입 {plan.total_income:,}원보다 "
             f"{excess:,}원 많아 저장할 수 없습니다.",
             excess=excess,
         )
 
-    for alloc_id, amount in new_amounts.items():
-        by_id[alloc_id].allocated_amount = amount
-        by_id[alloc_id].is_manual = True
-    plan.total_allocated = new_total
-    plan.unallocated = plan.total_income - new_total
+    result = _evaluate_plan(db, plan, new_amounts)  # 여기까지 DB는 바뀌지 않음
+    changed = {i for i, v in new_amounts.items() if by_id[i].allocated_amount != v}
+    _apply_result(plan, result, changed)
     db.commit()
     db.refresh(plan)
     return to_plan_read(db, plan)
 
 
-# ---------- 확정 (R08) ----------
+# ---------- 목표 삭제 (R02) ----------
 
-def confirm(db: Session, month: str) -> PlanRead:
-    """배분 계획을 확정한다. 확정된 목표 배분은 다음 달부터 확보액 C에 더해진다 (5.1)."""
-    plan = _require_plan(db, month)
-    if plan.status == "infeasible":
-        subject, obj = (
-            ("고정 지출이", "고정 지출을") if plan.shortage_target == "fixed"
-            else ("최소 생활비가", "최소 생활비를")
+def delete_goal(db: Session, goal_id: int) -> None:
+    """목표와 그 배분 항목을 지우고, 영향을 받은 계획을 다시 판정한다 (R02, C19).
+
+    소비 기록이 있는 목표는 지우지 않는다 → 409 (T16).
+    """
+    goal = get_or_404(db, Goal, goal_id, "목표")
+    if db.scalar(select(exists().where(Expense.goal_id == goal_id))):
+        raise ConflictError(
+            f"'{goal.goal_name}' 목표로 등록된 소비 기록이 있어 삭제할 수 없습니다. 소비 기록을 먼저 삭제하세요."
         )
-        raise BadRequestError(
-            f"배분 불가 상태의 계획은 확정할 수 없습니다. "
-            f"{subject} {plan.shortage:,}원 부족합니다. 수입이나 {obj} 조정한 뒤 재배분하세요."
-        )
-    plan.confirmed = True
+
+    rows = db.scalars(select(Allocation).where(Allocation.goal_id == goal_id)).all()
+    plans = list({row.plan.id: row.plan for row in rows}.values())
+    for row in rows:
+        row.plan.allocations.remove(row)  # delete-orphan으로 행 삭제
+    db.delete(goal)
+    db.flush()
+
+    for plan in plans:
+        if plan.status == "infeasible":  # 목표 배분이 없으므로 합계만 다시 계산
+            plan.total_allocated = sum(a.allocated_amount for a in plan.allocations)
+            plan.unallocated = plan.total_income - plan.total_allocated
+        else:  # T15: 남은 금액으로 재판정
+            _apply_result(plan, _evaluate_plan(db, plan, {}), set())
     db.commit()
-    db.refresh(plan)
-    return to_plan_read(db, plan)

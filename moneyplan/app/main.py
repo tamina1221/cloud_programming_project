@@ -1,11 +1,13 @@
 """FastAPI 앱 생성, 시작 시 테이블 생성, 라우터 등록, 오류 응답 형식 통일 (N05)."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import models  # noqa: F401  create_all이 모든 테이블을 알도록 import
 from app.database import Base
@@ -77,3 +79,8 @@ for module in (incomes, goals, fixed_expenses, settings, plans, expenses, dashbo
 def health() -> dict[str, str]:
     """서버 상태 확인."""
     return {"status": "ok"}
+
+
+# 브라우저 화면 (N07, C21). "/"에 마운트하므로 모든 API 경로를 등록한 뒤 맨 마지막에 둔다.
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

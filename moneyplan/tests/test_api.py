@@ -205,3 +205,123 @@ def test_T11_dashboard_month_only(seeded_client):
     dashboard = s.client.get(f"/dashboard/{MONTH}").json()
     assert dashboard["total_income"] == 900_000
     assert dashboard["month"] == MONTH
+
+
+def alloc_id(plan: dict, category: str, goal_id: int | None = None) -> int:
+    """계획 응답에서 배분 항목 id를 찾는다."""
+    return next(
+        a["id"] for a in plan["allocations"] if a["category"] == category and a["goal_id"] == goal_id
+    )
+
+
+def put_allocations(s: Seeded, amounts: dict[int, int]):
+    """배분 항목 id → 금액으로 수동 수정을 호출한다."""
+    items = [{"allocation_id": i, "allocated_amount": v} for i, v in amounts.items()]
+    return s.client.put(f"/plans/{MONTH}/allocations", json={"items": items})
+
+
+def test_T12_keep_rejected_when_infeasible(seeded_client):
+    """T12: 수입 400,000(배분 불가) → 용돈 200,000 추가 → 기존 유지 → 409, 재배분 안내 (C17)."""
+    s = seeded_client
+    set_income(s, 400_000)
+    assert allocate(s).json()["current"]["status"] == "infeasible"
+    add_allowance(s)
+    r = allocate(s, "keep")
+    assert r.status_code == 409, r.json()
+    assert "재배분" in r.json()["detail"]
+
+
+def test_T13_manual_edit_rejudges(seeded_client):
+    """T13: 수입 700,000에서 비상금 100,000, 여행 100,000으로 수정 → 두 목표 short, R' 220,000 / 250,000, partial (C18)."""
+    s = seeded_client
+    set_income(s, 700_000)
+    plan = allocate(s).json()["current"]
+    r = put_allocations(s, {
+        alloc_id(plan, "goal", s.emergency_id): 100_000,
+        alloc_id(plan, "goal", s.travel_id): 100_000,
+    })
+    assert r.status_code == 200, r.json()
+    edited = r.json()
+    emergency, travel = goal_result(edited, s.emergency_id), goal_result(edited, s.travel_id)
+    assert emergency["status"] == "short"
+    assert emergency["next_required"] == 220_000
+    assert travel["status"] == "short"
+    assert travel["next_required"] == 250_000
+    assert edited["status"] == "partial"
+    assert edited["unallocated"] == 0
+
+
+def test_T14_manual_edit_living_below_minimum(seeded_client):
+    """T14: 기준 데이터 배분 후 생활비를 200,000으로 수정 → 400, 저장된 생활비 300,000 유지 (C18)."""
+    s = seeded_client
+    plan = allocate(s).json()["current"]
+    r = put_allocations(s, {alloc_id(plan, "living"): 200_000})
+    assert r.status_code == 400, r.json()
+    assert s.client.get(f"/plans/{MONTH}").json()["living_allocated"] == 300_000
+
+
+def test_T15_delete_goal_rejudges_plan(seeded_client):
+    """T15: 수입 700,000(부분 배분)에서 여행 목표 삭제 → 204, 여행 항목 삭제, 상태 ok, 미배분 0 (C19)."""
+    s = seeded_client
+    set_income(s, 700_000)
+    assert allocate(s).json()["current"]["status"] == "partial"
+    r = s.client.delete(f"/goals/{s.travel_id}")
+    assert r.status_code == 204, r.json()
+    plan = s.client.get(f"/plans/{MONTH}").json()
+    assert all(a["goal_id"] != s.travel_id for a in plan["allocations"])
+    assert plan["status"] == "ok"
+    assert plan["total_allocated"] == 700_000
+    assert plan["unallocated"] == 0
+
+
+def test_T16_delete_goal_with_expense(seeded_client):
+    """T16: 여행 목표로 소비 50,000 등록 후 여행 목표 삭제 → 409, 목표 유지 (C19)."""
+    s = seeded_client
+    allocate(s)
+    r = s.client.post(
+        "/expenses",
+        json={"amount": 50_000, "category": "goal", "goal_id": s.travel_id, "expense_date": "2026-11-15"},
+    )
+    assert r.status_code == 201, r.json()
+    r = s.client.delete(f"/goals/{s.travel_id}")
+    assert r.status_code == 409
+    assert "소비 기록" in r.json()["detail"]
+    assert any(g["id"] == s.travel_id for g in s.client.get("/goals").json())
+
+
+def test_T17_manual_edit_rejected_when_infeasible(seeded_client):
+    """T17: 수입 400,000(배분 불가)에서 목표 배분 수정 → 400, 재배분 안내 (C18)."""
+    s = seeded_client
+    set_income(s, 400_000)
+    plan = allocate(s).json()["current"]
+    r = put_allocations(s, {alloc_id(plan, "goal", s.travel_id): 0})
+    assert r.status_code == 400, r.json()
+    assert "재배분" in r.json()["detail"]
+
+
+def test_N07_index_served(client):
+    """N07: GET / → 브라우저 화면(HTML) 제공 (C21)."""
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "MoneyPlan" in r.text
+
+
+def test_N05_korean_error_messages(client):
+    """N05: 422 응답의 msg가 원인을 알 수 있는 한국어 메시지인지 확인 (T01·T02는 상태 코드만 확인)."""
+    r = client.post(
+        "/incomes", json={"amount": 0, "income_type": "salary", "income_date": "2026-11-10"}
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["loc"] == ["body", "amount"]
+    assert r.json()["detail"][0]["msg"] == "0보다 커야 합니다."
+
+    r = client.post(
+        "/expenses", json={"amount": 1_000, "category": "goal", "expense_date": "2026-11-10"}
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["msg"] == "목적이 goal이면 goal_id를 입력해야 합니다."
+
+    r = client.get("/plans/2026-13")
+    assert r.status_code == 422
+    assert r.json()["detail"][0]["msg"] == "YYYY-MM 형식이어야 합니다. (예: 2026-11)"

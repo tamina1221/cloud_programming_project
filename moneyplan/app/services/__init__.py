@@ -3,6 +3,7 @@
 서비스는 ServiceError를 던지고, main.py의 예외 처리기가 HTTP 응답으로 바꾼다 (N05).
 """
 
+from datetime import date
 from typing import Any, TypeVar
 
 from sqlalchemy.orm import Session
@@ -48,3 +49,11 @@ def get_or_404(db: Session, model: type[ModelT], obj_id: Any, label: str) -> Mod
     if obj is None:
         raise NotFoundError(f"{label}을(를) 찾을 수 없습니다. (id={obj_id})")
     return obj
+
+
+def month_range(month: str) -> tuple[date, date]:
+    """'YYYY-MM'의 [첫날, 다음 달 첫날) 범위. 날짜 컬럼을 월로 거를 때 쓴다 (T11)."""
+    year, mon = int(month[:4]), int(month[5:7])
+    start = date(year, mon, 1)
+    end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
+    return start, end
