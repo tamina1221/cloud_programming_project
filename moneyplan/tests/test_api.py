@@ -325,3 +325,22 @@ def test_N05_korean_error_messages(client):
     r = client.get("/plans/2026-13")
     assert r.status_code == 422
     assert r.json()["detail"][0]["msg"] == "YYYY-MM 형식이어야 합니다. (예: 2026-11)"
+
+
+def test_T18_update_fixed_expense(seeded_client):
+    """T18: 고정 지출 200,000을 250,000으로 수정 → 200, 재배분하면 고정 지출 배분 250,000 (R03, C28)."""
+    s = seeded_client
+    fixed = s.client.get("/fixed-expenses", params={"month": MONTH}).json()[0]
+    r = s.client.put(
+        f"/fixed-expenses/{fixed['id']}",
+        json={"expense_name": "통신비·교통비", "amount": 250_000, "month": MONTH},
+    )
+    assert r.status_code == 200, r.json()
+    assert r.json()["amount"] == 250_000
+    plan = allocate(s).json()["current"]
+    assert plan["fixed_allocated"] == 250_000
+
+    r = s.client.put(
+        "/fixed-expenses/9999", json={"expense_name": "없음", "amount": 1_000, "month": MONTH}
+    )
+    assert r.status_code == 404

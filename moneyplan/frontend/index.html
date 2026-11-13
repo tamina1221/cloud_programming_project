@@ -48,6 +48,7 @@
     <input name="expense_name" type="text" placeholder="항목명" maxlength="100" required>
     <input name="amount" type="number" min="1" step="1" placeholder="금액" required>
     <button type="submit">등록</button>
+    <button type="button" class="cancel" hidden>취소</button>
   </form>
   <table>
     <thead><tr><th>항목</th><th class="num">금액</th><th></th></tr></thead>
@@ -57,8 +58,9 @@
 
   <h2>최소 생활비</h2>
   <p>현재 값: <strong id="settingNow"></strong></p>
-  <form id="settingForm" class="row-form">
-    <input name="min_living" type="number" min="1" step="1" placeholder="금액" required>
+  <!-- 위·아래 버튼은 10,000원 단위. 직접 입력한 금액(예: 305,000)도 저장되도록 브라우저 검사는 끄고 서버가 검증한다 -->
+  <form id="settingForm" class="row-form" novalidate>
+    <input name="min_living" type="number" step="10000" placeholder="금액">
     <button type="submit">저장</button>
   </form>
 

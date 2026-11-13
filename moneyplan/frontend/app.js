@@ -182,9 +182,14 @@ async function loadInput() {
     <tr>
       <td>${esc(f.expense_name)}</td>
       <td class="num">${won(f.amount)}</td>
-      <td><button type="button" data-del="/fixed-expenses/${f.id}">삭제</button></td>
+      <td><button type="button" data-edit-fixed="${f.id}">수정</button>
+          <button type="button" data-del="/fixed-expenses/${f.id}">삭제</button></td>
     </tr>`).join("");
   $("#fixedTotal").textContent = won(fixed.reduce((s, f) => s + f.amount, 0));
+  $("#fixedRows").querySelectorAll("[data-edit-fixed]").forEach((btn) => {
+    const item = fixed.find((f) => f.id === Number(btn.dataset.editFixed));
+    btn.addEventListener("click", () => startEdit($("#fixedForm"), item));
+  });
 
   try {
     const setting = await api("GET", `/settings/${m}`);

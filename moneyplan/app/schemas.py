@@ -93,6 +93,10 @@ class FixedExpenseCreate(BaseModel):
     month: Month
 
 
+class FixedExpenseUpdate(FixedExpenseCreate):
+    """고정 지출 수정 요청 (전체 교체, C28)."""
+
+
 class FixedExpenseRead(ReadModel):
     """고정 지출 응답."""
 
